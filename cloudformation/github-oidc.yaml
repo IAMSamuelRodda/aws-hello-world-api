@@ -168,18 +168,22 @@ Outputs:
 
   SetupInstructions:
     Description: Instructions for GitHub Actions setup
-    Value: !Sub |
-      Add the following secret to your GitHub repository:
-      - Name: AWS_ROLE_ARN
-      - Value: ${GitHubActionsDeploymentRole.Arn}
+    Value: !Sub
+      - |
+        Add the following secret to your GitHub repository:
+        - Name: AWS_ROLE_ARN
+        - Value: ${RoleArn}
 
-      Ensure your GitHub Actions workflow includes:
-      permissions:
-        id-token: write
-        contents: read
+        Ensure your GitHub Actions workflow includes:
+        permissions:
+          id-token: write
+          contents: read
 
-      And uses the official AWS configure-aws-credentials action:
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${AWS::Region}
+        And uses the official AWS configure-aws-credentials action:
+        - uses: aws-actions/configure-aws-credentials@v4
+          with:
+            role-to-assume: $${SECRETS_PLACEHOLDER}
+            aws-region: ${Region}
+      - RoleArn: !GetAtt GitHubActionsDeploymentRole.Arn
+        Region: !Ref AWS::Region
+        SECRETS_PLACEHOLDER: "{ secrets.AWS_ROLE_ARN }"
