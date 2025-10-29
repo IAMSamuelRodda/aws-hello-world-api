@@ -61,8 +61,7 @@ Resources:
                 'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com'
               StringLike:
                 'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOrganization}/${RepositoryName}:*'
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/PowerUserAccess  # For development - restrict in production
+      # ManagedPolicyArns removed for security - using least-privilege custom policies only
       Policies:
         - PolicyName: SAMDeploymentPolicy
           PolicyDocument:
@@ -136,6 +135,13 @@ Resources:
                   - iam:TagRole
                 Resource:
                   - !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-hello-world-api-*'
+
+              # X-Ray permissions for distributed tracing
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                Resource: '*'
       Tags:
         - Key: Purpose
           Value: GitHubActions

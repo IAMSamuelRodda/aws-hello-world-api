@@ -1,0 +1,21 @@
+# Code owners for automatic PR review assignment
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything in the repo
+# Unless a later match takes precedence, these users will be requested for review
+* @devops-team
+
+# Infrastructure and configuration files
+template.yaml @devops-team @infrastructure-team
+cloudformation/ @security-team @devops-team
+
+# CI/CD workflows
+.github/workflows/ @devops-team
+
+# Security-sensitive configuration
+samconfig.toml @security-team @devops-team
+.github/workflows/ @security-team @devops-team
+
+# Documentation
+README.md @devops-team
+docs/ @devops-team
