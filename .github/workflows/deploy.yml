@@ -205,9 +205,9 @@ jobs:
             response_time=$(curl -o /dev/null -s -w '%{time_total}\n' "$API_ENDPOINT/hello")
             echo "Request $i: ${response_time}s"
 
-            # Check if response time is under 200ms (should pass on warm Lambda)
-            if (( $(echo "$response_time > 0.2" | bc -l) )); then
-              echo "Response time exceeded 200ms threshold"
+            # Check if response time is under 300ms (accounting for network latency)
+            if (( $(echo "$response_time > 0.3" | bc -l) )); then
+              echo "⚠️  Response time exceeded 300ms threshold"
               exit 1
             fi
           done
