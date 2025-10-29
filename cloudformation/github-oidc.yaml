@@ -1,0 +1,179 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  GitHub OIDC Provider and IAM Role for GitHub Actions
+  This template sets up secure authentication for GitHub Actions to deploy to AWS
+
+Parameters:
+  GitHubOrganization:
+    Type: String
+    Description: GitHub organization or username
+    Default: YOUR_GITHUB_ORG  # Replace with your GitHub organization/username
+
+  RepositoryName:
+    Type: String
+    Default: aws-hello-world-api
+    Description: GitHub repository name
+
+  OIDCProviderArn:
+    Type: String
+    Default: ""
+    Description: ARN of existing GitHub OIDC Provider (leave empty to create new)
+
+Conditions:
+  CreateOIDCProvider: !Equals [!Ref OIDCProviderArn, ""]
+
+Resources:
+  # GitHub OIDC Provider (only created if not existing)
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+      Tags:
+        - Key: Purpose
+          Value: GitHubActions
+        - Key: Project
+          Value: aws-hello-world-api
+
+  # IAM Role for GitHub Actions
+  GitHubActionsDeploymentRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'github-actions-deploy-${RepositoryName}'
+      Description: IAM Role for GitHub Actions to deploy Hello World API
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOIDCProvider
+                - !GetAtt GitHubOIDCProvider.Arn
+                - !Ref OIDCProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com'
+              StringLike:
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOrganization}/${RepositoryName}:*'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/PowerUserAccess  # For development - restrict in production
+      Policies:
+        - PolicyName: SAMDeploymentPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # CloudFormation permissions
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                  - iam:PassRole
+                Resource: '*'
+
+              # Lambda permissions
+              - Effect: Allow
+                Action:
+                  - lambda:*
+                Resource: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:hello-world*'
+
+              # API Gateway permissions
+              - Effect: Allow
+                Action:
+                  - apigateway:*
+                Resource: '*'
+
+              # S3 permissions for deployment artifacts
+              - Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:GetBucket*
+                  - s3:PutBucket*
+                  - s3:DeleteBucket*
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::aws-hello-world-api-${AWS::AccountId}-*'
+                  - !Sub 'arn:aws:s3:::aws-hello-world-api-${AWS::AccountId}-*/*'
+                  - !Sub 'arn:aws:s3:::aws-sam-cli-managed-default-*'
+                  - !Sub 'arn:aws:s3:::aws-sam-cli-managed-default-*/*'
+
+              # CloudWatch permissions
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:PutRetentionPolicy
+                  - logs:DeleteLogGroup
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/hello-world*'
+
+              # CloudWatch Dashboard permissions
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutDashboard
+                  - cloudwatch:DeleteDashboards
+                  - cloudwatch:GetDashboard
+                Resource: '*'
+
+              # IAM permissions for Lambda execution role
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:AttachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:DeleteRole
+                  - iam:GetRole
+                  - iam:GetRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:DetachRolePolicy
+                  - iam:TagRole
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-hello-world-api-*'
+      Tags:
+        - Key: Purpose
+          Value: GitHubActions
+        - Key: Project
+          Value: aws-hello-world-api
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  GitHubActionsRoleArn:
+    Description: ARN of the IAM Role for GitHub Actions
+    Value: !GetAtt GitHubActionsDeploymentRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RoleArn'
+
+  OIDCProviderArn:
+    Description: ARN of the GitHub OIDC Provider
+    Value: !If
+      - CreateOIDCProvider
+      - !GetAtt GitHubOIDCProvider.Arn
+      - !Ref OIDCProviderArn
+    Export:
+      Name: !Sub '${AWS::StackName}-OIDCProviderArn'
+
+  SetupInstructions:
+    Description: Instructions for GitHub Actions setup
+    Value: !Sub |
+      Add the following secret to your GitHub repository:
+      - Name: AWS_ROLE_ARN
+      - Value: ${GitHubActionsDeploymentRole.Arn}
+
+      Ensure your GitHub Actions workflow includes:
+      permissions:
+        id-token: write
+        contents: read
+
+      And uses the official AWS configure-aws-credentials action:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${AWS::Region}

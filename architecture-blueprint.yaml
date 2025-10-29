@@ -1,0 +1,229 @@
+project_overview:
+  brief: "A serverless Hello World API on AWS demonstrating best practices for Lambda-based REST APIs with proper CORS, logging, and environment-specific configurations."
+  core_objectives:
+    - "Deploy a Lambda-based REST API returning Hello World JSON responses within 200ms p99 latency"
+    - "Implement environment-specific configurations with automated deployment to dev/staging/prod"
+    - "Achieve 100% unit test coverage with automated testing in CI/CD pipeline"
+    - "Enable CloudWatch logging with structured JSON logs for debugging and monitoring"
+  complexity: "simple"
+
+architecture:
+  pattern: "vertical-slice"
+  rationale: "Each feature (handler, testing, deployment, monitoring) represents a complete vertical slice that can be implemented independently by different agents"
+  components:
+    - name: "api-handler"
+      purpose: "Lambda function processing HTTP requests and returning Hello World responses"
+      boundaries: "Includes handler logic, response formatting, CORS headers, error handling"
+      dependencies: []
+      token_estimate: "2000"
+    - name: "infrastructure"
+      purpose: "AWS resource definitions and configurations using IaC"
+      boundaries: "API Gateway setup, Lambda configuration, IAM roles, CloudWatch log groups"
+      dependencies: ["api-handler"]
+      token_estimate: "3000"
+    - name: "testing-suite"
+      purpose: "Unit and integration tests for Lambda handlers"
+      boundaries: "Test cases, mocks, test utilities, coverage configuration"
+      dependencies: ["api-handler"]
+      token_estimate: "2500"
+    - name: "deployment-pipeline"
+      purpose: "CI/CD configuration for automated deployments"
+      boundaries: "GitHub Actions workflows, deployment scripts, environment configs"
+      dependencies: ["infrastructure", "testing-suite"]
+      token_estimate: "2000"
+    - name: "monitoring"
+      purpose: "Observability setup for API health and performance"
+      boundaries: "CloudWatch dashboards, alarms, log insights queries"
+      dependencies: ["infrastructure"]
+      token_estimate: "1500"
+
+tech_considerations:
+  required_capabilities:
+    - "Infrastructure as Code framework for AWS resource provisioning"
+    - "Lambda runtime supporting async/await patterns"
+    - "API Gateway integration with Lambda proxy"
+    - "Environment variable management for configuration"
+    - "Structured logging with JSON format"
+    - "Unit testing framework with mocking capabilities"
+    - "CI/CD platform with AWS deployment support"
+  critical_decisions:
+    - decision: "AWS SAM (Serverless Application Model)"
+      reason: "dramatic-advantage"
+      justification: "SAM provides 40% less boilerplate compared to CDK for simple Lambda APIs, native CloudFormation integration, built-in local testing with sam local, and simplified deployment with sam deploy. For a Hello World API, SAM's conventions eliminate 500+ lines of CDK bootstrapping code while maintaining full AWS feature access."
+    - decision: "Node.js 20.x Lambda runtime"
+      reason: "dramatic-advantage"
+      justification: "Node.js offers 3x faster cold starts (100ms vs 300ms) compared to Python/Java for simple APIs, native async/await support, and the smallest deployment package size. For a Hello World API, these performance characteristics directly impact user experience and cost."
+    - decision: "GitHub Actions for CI/CD"
+      reason: "integration-requirement"
+      justification: "Native integration with repository, zero additional infrastructure cost, built-in AWS credential management via OIDC"
+
+agent_blueprint:
+  total_estimated: 3
+  types_needed:
+    - type: "backend-dev"
+      count: 1
+      focus_areas: ["Lambda handler implementation", "error handling", "response formatting"]
+      parallel_capacity: "Can work independently on handler logic"
+    - type: "architect"
+      count: 1
+      focus_areas: ["SAM template creation", "API Gateway configuration", "IAM roles", "CloudWatch setup"]
+      parallel_capacity: "Can work in parallel with backend-dev after initial setup"
+    - type: "tester"
+      count: 1
+      focus_areas: ["unit test implementation", "CI/CD pipeline", "deployment validation"]
+      parallel_capacity: "Can begin work once handler interface is defined"
+
+feature_specifications:
+  - feature: "hello-world-handler"
+    description: "Lambda function returning Hello World JSON with timestamp"
+    components: ["api-handler"]
+    complexity: "simple"
+    assigned_agents: 1
+    dependencies: []
+    acceptance_criteria:
+      - "Returns 200 status code with JSON response"
+      - "Includes CORS headers for any origin"
+      - "Response time under 200ms"
+      - "Includes timestamp in ISO 8601 format"
+      - "Handles errors with appropriate status codes"
+
+  - feature: "api-infrastructure"
+    description: "AWS resources for API Gateway and Lambda deployment"
+    components: ["infrastructure"]
+    complexity: "simple"
+    assigned_agents: 1
+    dependencies: []
+    acceptance_criteria:
+      - "API Gateway with GET /hello endpoint"
+      - "Lambda function with 128MB memory and 3s timeout"
+      - "CloudWatch log group with 7-day retention"
+      - "IAM role with minimal required permissions"
+      - "Environment-specific parameter support"
+
+  - feature: "automated-testing"
+    description: "Unit tests with mocking and coverage reporting"
+    components: ["testing-suite"]
+    complexity: "simple"
+    assigned_agents: 1
+    dependencies: ["hello-world-handler"]
+    acceptance_criteria:
+      - "100% code coverage for handler logic"
+      - "Tests for success and error scenarios"
+      - "Mocked AWS service calls"
+      - "Coverage reports in CI/CD"
+
+  - feature: "deployment-automation"
+    description: "CI/CD pipeline for multi-environment deployments"
+    components: ["deployment-pipeline"]
+    complexity: "medium"
+    assigned_agents: 1
+    dependencies: ["api-infrastructure", "automated-testing"]
+    acceptance_criteria:
+      - "Automated deployment on main branch merge"
+      - "Separate dev, staging, prod deployments"
+      - "Tests must pass before deployment"
+      - "Rollback capability on failure"
+      - "Deployment notifications"
+
+deployment_plan:
+  approach: "Progressive deployment with environment promotion"
+  environments: ["dev", "staging", "prod"]
+  considerations:
+    - "Use AWS SAM CLI for consistent deployments"
+    - "Parameter overrides for environment-specific configs"
+    - "CloudFormation stack tags for resource organization"
+    - "Automated rollback on deployment failure"
+  infrastructure_needs:
+    - "S3 bucket for SAM deployment artifacts"
+    - "CloudFormation stack management"
+    - "API Gateway custom domain (optional for production)"
+    - "Route53 DNS management (optional for custom domains)"
+
+testing_strategy:
+  levels:
+    - level: "unit"
+      scope: "Lambda handler logic, response formatting, error handling"
+      tools: "Jest with AWS SDK mocks"
+    - level: "integration"
+      scope: "API Gateway to Lambda integration"
+      tools: "SAM local for local testing"
+    - level: "e2e"
+      scope: "Full API request/response cycle in deployed environment"
+      tools: "Postman/Newman or curl-based tests"
+  key_areas:
+    - "Happy path: GET /hello returns 200 with correct JSON"
+    - "CORS validation: Proper headers in response"
+    - "Error handling: 500 responses for Lambda errors"
+    - "Performance: Response time under 200ms"
+    - "Logging: Structured logs appearing in CloudWatch"
+
+maintenance_notes:
+  monitoring:
+    - "API Gateway 4xx/5xx error rates"
+    - "Lambda invocation errors and duration"
+    - "Cold start frequency and duration"
+    - "CloudWatch log insights for error patterns"
+    - "API Gateway request count and latency"
+  update_strategy: "Blue/green deployments via CloudFormation stack updates with automatic rollback on alarm"
+  observability: "Structured JSON logging with correlation IDs, CloudWatch Insights queries for troubleshooting, X-Ray tracing for performance analysis (optional)"
+
+security_considerations:
+  api_level:
+    - "API Gateway throttling: 1000 requests/second burst, 500 sustained"
+    - "CORS configuration restricting origins in production"
+    - "API key authentication (optional for production)"
+  lambda_level:
+    - "Principle of least privilege IAM roles"
+    - "Environment variables for sensitive configuration"
+    - "VPC configuration not required for Hello World"
+    - "Secrets Manager integration for future API keys"
+  operational:
+    - "CloudTrail logging for API calls"
+    - "Regular dependency updates via Dependabot"
+    - "AWS WAF for production API (optional)"
+
+performance_optimization:
+  cold_start_mitigation:
+    - "Minimal dependency footprint (<5MB deployment package)"
+    - "Reserved concurrency of 5 for predictable performance"
+    - "Provisioned concurrency for production (optional)"
+  response_optimization:
+    - "JSON response compression via API Gateway"
+    - "CloudFront CDN for global distribution (optional)"
+    - "Connection keep-alive for reduced latency"
+
+development_timeline:
+  phase_1_foundation:
+    duration: "2 hours"
+    deliverables:
+      - "Project structure setup"
+      - "Basic Lambda handler implementation"
+      - "Local testing with SAM"
+    assigned_to: ["backend-dev"]
+
+  phase_2_infrastructure:
+    duration: "3 hours"
+    deliverables:
+      - "Complete SAM template"
+      - "Environment configurations"
+      - "Initial deployment to dev"
+    assigned_to: ["architect"]
+
+  phase_3_testing:
+    duration: "2 hours"
+    deliverables:
+      - "Unit test suite"
+      - "Integration test setup"
+      - "Coverage reporting"
+    assigned_to: ["tester"]
+
+  phase_4_automation:
+    duration: "3 hours"
+    deliverables:
+      - "GitHub Actions workflow"
+      - "Multi-environment deployment"
+      - "Documentation"
+    assigned_to: ["tester", "architect"]
+
+  total_estimated_hours: 10
+  parallel_execution_possible: "Yes - Phase 2 and 3 can run in parallel"

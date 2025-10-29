@@ -1,0 +1,41 @@
+{
+  "name": "aws-hello-world-api",
+  "version": "1.0.0",
+  "description": "A serverless Hello World API built with AWS SAM",
+  "main": "src/handlers/hello.js",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "coverage": "jest --coverage"
+  },
+  "keywords": [
+    "aws",
+    "lambda",
+    "serverless",
+    "api-gateway",
+    "sam"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "@types/node": "^20.10.0",
+    "aws-sdk-mock": "^5.9.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/**/*.test.js"
+    ],
+    "coverageDirectory": "coverage",
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
+    ],
+    "testMatch": [
+      "**/tests/unit/**/*.test.js"
+    ]
+  }
+}

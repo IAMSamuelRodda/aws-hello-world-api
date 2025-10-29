@@ -1,0 +1,320 @@
+name: Deploy Hello World API
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+# Required for OIDC authentication
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  NODE_VERSION: '20.x'
+
+jobs:
+  # Run unit tests
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Generate coverage report
+        run: npm run coverage
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage/
+
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(npm run coverage 2>&1 | grep "All files" | awk '{print $10}' | sed 's/%//')
+          echo "Code coverage: ${COVERAGE}%"
+          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
+            echo "Coverage is below 80% threshold"
+            exit 1
+          fi
+
+  # Deploy to development environment
+  deploy-dev:
+    name: Deploy to Development
+    needs: test
+    if: github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment:
+      name: development
+      url: ${{ steps.deploy.outputs.api_endpoint }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python for SAM
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build SAM application
+        run: sam build
+
+      - name: Deploy to Development
+        id: deploy
+        run: |
+          sam deploy \
+            --stack-name aws-hello-world-api-dev \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides Environment=dev ApiVersion=${{ github.sha }} \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --output json > deploy-output.json
+
+          # Extract API endpoint from deployment output
+          API_ENDPOINT=$(aws cloudformation describe-stacks \
+            --stack-name aws-hello-world-api-dev \
+            --query 'Stacks[0].Outputs[?OutputKey==`HelloWorldApi`].OutputValue' \
+            --output text)
+
+          echo "api_endpoint=$API_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "### Deployed to Development" >> $GITHUB_STEP_SUMMARY
+          echo "API Endpoint: $API_ENDPOINT" >> $GITHUB_STEP_SUMMARY
+
+      - name: Smoke test
+        run: |
+          API_ENDPOINT="${{ steps.deploy.outputs.api_endpoint }}"
+          echo "Testing API at: $API_ENDPOINT"
+
+          # Test hello endpoint
+          HELLO_RESPONSE=$(curl -s "$API_ENDPOINT/hello")
+          echo "Hello endpoint response: $HELLO_RESPONSE"
+          echo "$HELLO_RESPONSE" | grep -q "Hello World!" || exit 1
+
+          # Test health endpoint
+          HEALTH_RESPONSE=$(curl -s "$API_ENDPOINT/health")
+          echo "Health endpoint response: $HEALTH_RESPONSE"
+          echo "$HEALTH_RESPONSE" | grep -q "healthy" || exit 1
+
+  # Deploy to staging environment
+  deploy-staging:
+    name: Deploy to Staging
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ steps.deploy.outputs.api_endpoint }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python for SAM
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build SAM application
+        run: sam build
+
+      - name: Deploy to Staging
+        id: deploy
+        run: |
+          sam deploy \
+            --stack-name aws-hello-world-api-staging \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides Environment=staging ApiVersion=${{ github.sha }} \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+
+          # Extract API endpoint
+          API_ENDPOINT=$(aws cloudformation describe-stacks \
+            --stack-name aws-hello-world-api-staging \
+            --query 'Stacks[0].Outputs[?OutputKey==`HelloWorldApi`].OutputValue' \
+            --output text)
+
+          echo "api_endpoint=$API_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "### Deployed to Staging" >> $GITHUB_STEP_SUMMARY
+          echo "API Endpoint: $API_ENDPOINT" >> $GITHUB_STEP_SUMMARY
+
+      - name: Run integration tests
+        run: |
+          API_ENDPOINT="${{ steps.deploy.outputs.api_endpoint }}"
+
+          # Performance test
+          echo "Running performance test..."
+          for i in {1..10}; do
+            response_time=$(curl -o /dev/null -s -w '%{time_total}\n' "$API_ENDPOINT/hello")
+            echo "Request $i: ${response_time}s"
+
+            # Check if response time is under 200ms
+            if (( $(echo "$response_time > 0.2" | bc -l) )); then
+              echo "Response time exceeded 200ms threshold"
+              exit 1
+            fi
+          done
+
+  # Deploy to production environment (requires manual approval)
+  deploy-prod:
+    name: Deploy to Production
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.api_endpoint }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python for SAM
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Build SAM application
+        run: sam build
+
+      - name: Deploy to Production
+        id: deploy
+        run: |
+          sam deploy \
+            --stack-name aws-hello-world-api-prod \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides Environment=prod ApiVersion=${{ github.sha }} \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+
+          # Extract API endpoint
+          API_ENDPOINT=$(aws cloudformation describe-stacks \
+            --stack-name aws-hello-world-api-prod \
+            --query 'Stacks[0].Outputs[?OutputKey==`HelloWorldApi`].OutputValue' \
+            --output text)
+
+          echo "api_endpoint=$API_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "### Deployed to Production 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "API Endpoint: $API_ENDPOINT" >> $GITHUB_STEP_SUMMARY
+          echo "Version: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Verify production deployment
+        run: |
+          API_ENDPOINT="${{ steps.deploy.outputs.api_endpoint }}"
+
+          # Verify endpoints are responding
+          for endpoint in "/hello" "/health"; do
+            echo "Testing $endpoint..."
+            response=$(curl -s -o /dev/null -w "%{http_code}" "$API_ENDPOINT$endpoint")
+            if [ "$response" != "200" ]; then
+              echo "Production endpoint $endpoint returned $response"
+              exit 1
+            fi
+          done
+
+          echo "✅ Production deployment verified successfully"
+
+      - name: Create release
+        if: success()
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Release v${{ github.run_number }}
+          body: |
+            Production deployment of Hello World API
+
+            **Commit:** ${{ github.sha }}
+            **API Endpoint:** ${{ steps.deploy.outputs.api_endpoint }}
+
+            ### Changes
+            ${{ github.event.head_commit.message }}
+          draft: false
+          prerelease: false
+
+  # Rollback job (manual trigger only)
+  rollback:
+    name: Rollback Deployment
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Rollback to previous version
+        run: |
+          # Get previous stack version
+          PREVIOUS_VERSION=$(aws cloudformation describe-stack-events \
+            --stack-name aws-hello-world-api-prod \
+            --query 'StackEvents[?ResourceStatus==`UPDATE_COMPLETE`].ResourceProperties' \
+            --output text | head -n 2 | tail -n 1)
+
+          echo "Rolling back to previous version..."
+          # Implement rollback logic here
+          echo "⚠️ Manual rollback required. Previous version: $PREVIOUS_VERSION"

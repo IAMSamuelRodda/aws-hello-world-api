@@ -1,0 +1,227 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  aws-hello-world-api
+  A serverless Hello World API built with AWS SAM
+
+# Template parameters for environment-specific configuration
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name for the deployment
+
+  ApiVersion:
+    Type: String
+    Default: '1.0.0'
+    Description: API version for tracking
+
+# Global configuration for all functions
+Globals:
+  Function:
+    Timeout: 3
+    Runtime: nodejs20.x
+    MemorySize: 128
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        API_VERSION: !Ref ApiVersion
+    Tags:
+      Environment: !Ref Environment
+      Project: aws-hello-world-api
+      Version: !Ref ApiVersion
+
+  Api:
+    # CORS configuration
+    Cors:
+      AllowMethods: "'GET,OPTIONS'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      AllowOrigin: "'*'"
+
+Resources:
+  # API Gateway
+  HelloWorldApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub 'hello-world-api-${Environment}'
+      StageName: !Ref Environment
+      TracingEnabled: true
+      # OpenAPI definition for better control
+      DefinitionBody:
+        openapi: '3.0.1'
+        info:
+          title: !Sub 'Hello World API - ${Environment}'
+          version: !Ref ApiVersion
+        paths:
+          /hello:
+            get:
+              x-amazon-apigateway-integration:
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HelloWorldFunction.Arn}/invocations'
+                httpMethod: POST
+                type: aws_proxy
+              responses:
+                '200':
+                  description: Successful response
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+          /health:
+            get:
+              x-amazon-apigateway-integration:
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${HealthCheckFunction.Arn}/invocations'
+                httpMethod: POST
+                type: aws_proxy
+              responses:
+                '200':
+                  description: Service is healthy
+                '503':
+                  description: Service is unhealthy
+
+  # Hello World Lambda Function
+  HelloWorldFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'hello-world-${Environment}'
+      CodeUri: src/handlers/
+      Handler: hello.handler
+      Description: Hello World API endpoint handler
+      # ReservedConcurrentExecutions: 10  # Commented out due to account limits
+      Events:
+        HelloWorld:
+          Type: Api
+          Properties:
+            RestApiId: !Ref HelloWorldApi
+            Path: /hello
+            Method: get
+
+  # Health Check Lambda Function
+  HealthCheckFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'hello-world-health-${Environment}'
+      CodeUri: src/handlers/
+      Handler: health.handler
+      Description: Health check endpoint handler
+      # ReservedConcurrentExecutions: 5  # Commented out due to account limits
+      Events:
+        HealthCheck:
+          Type: Api
+          Properties:
+            RestApiId: !Ref HelloWorldApi
+            Path: /health
+            Method: get
+
+  # CloudWatch Log Groups with retention
+  HelloWorldLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/hello-world-${Environment}'
+      RetentionInDays: 7
+
+  HealthCheckLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/hello-world-health-${Environment}'
+      RetentionInDays: 7
+
+  # S3 Bucket for deployment artifacts
+  DeploymentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'aws-hello-world-api-${AWS::AccountId}-${Environment}'
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # CloudWatch Dashboard for monitoring
+  ApiDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub 'hello-world-api-${Environment}'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "properties": {
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", {"stat": "Sum", "label": "Invocations"}],
+                  [".", "Errors", {"stat": "Sum", "label": "Errors"}],
+                  [".", "Duration", {"stat": "Average", "label": "Avg Duration (ms)"}]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "Lambda Metrics",
+                "dimensions": {
+                  "FunctionName": "hello-world-${Environment}"
+                }
+              }
+            },
+            {
+              "type": "metric",
+              "properties": {
+                "metrics": [
+                  ["AWS/ApiGateway", "Count", {"stat": "Sum", "label": "API Calls"}],
+                  [".", "4XXError", {"stat": "Sum", "label": "4XX Errors"}],
+                  [".", "5XXError", {"stat": "Sum", "label": "5XX Errors"}]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}",
+                "title": "API Gateway Metrics",
+                "dimensions": {
+                  "ApiName": "hello-world-api-${Environment}"
+                }
+              }
+            }
+          ]
+        }
+
+# Stack outputs
+Outputs:
+  HelloWorldApi:
+    Description: API Gateway endpoint URL for Hello World API
+    Value: !Sub 'https://${HelloWorldApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'
+
+  HelloWorldFunctionArn:
+    Description: Hello World Lambda Function ARN
+    Value: !GetAtt HelloWorldFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-HelloFunctionArn'
+
+  HealthCheckFunctionArn:
+    Description: Health Check Lambda Function ARN
+    Value: !GetAtt HealthCheckFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-HealthFunctionArn'
+
+  DeploymentBucketName:
+    Description: S3 Bucket for deployment artifacts
+    Value: !Ref DeploymentBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-DeploymentBucket'
+
+  DashboardURL:
+    Description: CloudWatch Dashboard URL
+    Value: !Sub 'https://console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=hello-world-api-${Environment}'

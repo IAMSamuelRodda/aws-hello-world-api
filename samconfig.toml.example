@@ -1,0 +1,45 @@
+# SAM CLI configuration file
+# Copy this file to samconfig.toml and update with your values
+
+version = 0.1
+
+# Development environment configuration
+[dev]
+[dev.deploy]
+[dev.deploy.parameters]
+stack_name = "aws-hello-world-api-dev"
+s3_prefix = "aws-hello-world-api-dev"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Environment=dev ApiVersion=1.0.0"
+confirm_changeset = true
+
+# Staging environment configuration
+[staging]
+[staging.deploy]
+[staging.deploy.parameters]
+stack_name = "aws-hello-world-api-staging"
+s3_prefix = "aws-hello-world-api-staging"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Environment=staging ApiVersion=1.0.0"
+confirm_changeset = true
+
+# Production environment configuration
+[prod]
+[prod.deploy]
+[prod.deploy.parameters]
+stack_name = "aws-hello-world-api-prod"
+s3_prefix = "aws-hello-world-api-prod"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Environment=prod ApiVersion=1.0.0"
+confirm_changeset = true
+
+# Local testing configuration
+[default]
+[default.local_start_api]
+[default.local_start_api.parameters]
+port = 3000
+host = "127.0.0.1"
+parameter_overrides = "Environment=local ApiVersion=1.0.0"
