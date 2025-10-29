@@ -7,7 +7,7 @@ Parameters:
   GitHubOrganization:
     Type: String
     Description: GitHub organization or username
-    Default: YOUR_GITHUB_ORG  # Replace with your GitHub organization/username
+    Default: iamsamuelrodda
 
   RepositoryName:
     Type: String
