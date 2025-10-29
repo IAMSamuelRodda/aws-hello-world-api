@@ -21,10 +21,10 @@ on:
           - staging
           - prod
 
-# Required for OIDC authentication
+# Required for OIDC authentication and release creation
 permissions:
   id-token: write
-  contents: read
+  contents: write  # Required for creating releases
 
 env:
   AWS_REGION: ap-southeast-2
@@ -301,22 +301,18 @@ jobs:
 
       - name: Create release
         if: success()
-        uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: v${{ github.run_number }}
-          release_name: Release v${{ github.run_number }}
-          body: |
-            Production deployment of Hello World API
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ github.run_number }}" \
+            --title "Release v${{ github.run_number }}" \
+            --notes "Production deployment of Hello World API
 
-            **Commit:** ${{ github.sha }}
-            **API Endpoint:** ${{ steps.deploy.outputs.api_endpoint }}
+          **Commit:** ${{ github.sha }}
+          **API Endpoint:** ${{ steps.deploy.outputs.api_endpoint }}
 
-            ### Changes
-            ${{ github.event.head_commit.message }}
-          draft: false
-          prerelease: false
+          ### Changes
+          ${{ github.event.head_commit.message }}"
 
   # Rollback job (manual trigger only)
   rollback:
