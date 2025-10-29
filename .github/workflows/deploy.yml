@@ -110,7 +110,7 @@ jobs:
             --parameter-overrides Environment=dev ApiVersion=${{ github.sha }} \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
-            --output json > deploy-output.json
+            --resolve-s3
 
           # Extract API endpoint from deployment output
           API_ENDPOINT=$(aws cloudformation describe-stacks \
@@ -177,7 +177,8 @@ jobs:
             --capabilities CAPABILITY_IAM \
             --parameter-overrides Environment=staging ApiVersion=${{ github.sha }} \
             --no-confirm-changeset \
-            --no-fail-on-empty-changeset
+            --no-fail-on-empty-changeset \
+            --resolve-s3
 
           # Extract API endpoint
           API_ENDPOINT=$(aws cloudformation describe-stacks \
@@ -246,7 +247,8 @@ jobs:
             --capabilities CAPABILITY_IAM \
             --parameter-overrides Environment=prod ApiVersion=${{ github.sha }} \
             --no-confirm-changeset \
-            --no-fail-on-empty-changeset
+            --no-fail-on-empty-changeset \
+            --resolve-s3
 
           # Extract API endpoint
           API_ENDPOINT=$(aws cloudformation describe-stacks \
